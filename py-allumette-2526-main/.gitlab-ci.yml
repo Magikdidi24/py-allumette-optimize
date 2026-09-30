@@ -1,0 +1,111 @@
+stages:
+  - compliance
+  - autodiff
+  - numerics
+  - ml
+  - torch_compat
+  - mpc
+  - integration
+
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.pip-cache"
+
+cache:
+  paths:
+    - .pip-cache/
+
+.test_base: &test_base
+  image: python:3.10-slim
+  before_script:
+    - pip install --quiet -r src/requirements.txt
+    - pip install --quiet pytest pytest-cov torch --index-url https://download.pytorch.org/whl/cpu
+
+# ---------------------------------------------------------------------------
+# Stage 0 — Compliance: no forbidden autodiff framework in student code
+# ---------------------------------------------------------------------------
+test:compliance:
+  <<: *test_base
+  stage: compliance
+  script:
+    - pytest --impl student tests/test_no_forbidden_libs.py -v
+
+# ---------------------------------------------------------------------------
+# Stage 1 — Core autodiff: Tensor ops and backward pass
+# ---------------------------------------------------------------------------
+test:autodiff:
+  <<: *test_base
+  stage: autodiff
+  script:
+    - pytest --impl student tests/test_autodiff.py -v
+             --cov=student/autodiff
+             --cov-report=term-missing
+
+# ---------------------------------------------------------------------------
+# Stage 2 — Physics numerics: Euler step, dynamics shape
+# ---------------------------------------------------------------------------
+test:numerics:
+  <<: *test_base
+  stage: numerics
+  script:
+    - pytest --impl student tests/test_numerics.py -v
+             --cov=student/mpc
+             --cov-report=term-missing
+
+
+# ---------------------------------------------------------------------------
+# Stage 3 — ML modules: Linear layer, MLP forward/backward, training loop
+# ---------------------------------------------------------------------------
+test:ml:
+  <<: *test_base
+  stage: ml
+  script:
+    - pytest --impl student tests/test_mlp.py -v
+             --cov=student/ml
+             --cov-report=term-missing
+
+# ---------------------------------------------------------------------------
+# Stage 4 — PyTorch compatibility: student autodiff must match torch exactly
+# ---------------------------------------------------------------------------
+test:torch_compat:
+  <<: *test_base
+  stage: torch_compat
+  script:
+    - pytest --impl student tests/test_torch_compat.py -v
+             --cov=student/autodiff
+             --cov=student/ml
+             --cov-report=term-missing
+
+# ---------------------------------------------------------------------------
+# Stage 5 — MPC: simple 1D controller correctness
+# ---------------------------------------------------------------------------
+test:mpc:
+  <<: *test_base
+  stage: mpc
+  script:
+    - pytest --impl student tests/test_simple_mpc.py -v
+             --cov=student/mpc
+             --cov-report=term-missing
+
+# ---------------------------------------------------------------------------
+# Stage 6 — Integration: full car + track end-to-end
+# ---------------------------------------------------------------------------
+test:integration:
+  <<: *test_base
+  stage: integration
+  script:
+    - pytest --impl student tests/test_car_run.py -v
+             --cov=student/autodiff
+             --cov=student/ml
+             --cov=student/mpc
+             --cov-report=xml:coverage.xml
+             --cov-report=term-missing
+             --junit-xml=report.xml
+  coverage: '/^TOTAL.*\s+(\d+%)$/'
+  artifacts:
+    when: always
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage.xml
+      junit: report.xml
+    expire_in: 1 week

@@ -1,0 +1,16 @@
+# Core numerical stack
+numpy>=1.24,<3.0
+scipy>=1.10
+
+# Visualisation (used by RaceVisualizer)
+matplotlib>=3.7
+
+# Testing
+pytest>=7.4
+pytest-cov>=4.1
+
+# PyTorch CPU — used ONLY in tests/test_torch_compat.py to validate
+# that the student autodiff engine matches a reference implementation.
+# Students must NOT use torch inside student/.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch>=2.0,<3.0
