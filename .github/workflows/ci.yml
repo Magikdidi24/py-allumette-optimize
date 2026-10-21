@@ -1,0 +1,36 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.10"
+          cache: pip
+          cache-dependency-path: src/requirements.txt
+      - name: Install dependencies
+        run: |
+          pip install --quiet -r src/requirements.txt
+          pip install --quiet pytest pytest-cov torch --index-url https://download.pytorch.org/whl/cpu
+
+      # Same stages, in the same order, as the old GitLab pipeline.
+      - name: Compliance (no autodiff framework in student/)
+        run: pytest --impl student tests/test_no_forbidden_libs.py -v
+      - name: Autodiff
+        run: pytest --impl student tests/test_autodiff.py -v --cov=student/autodiff --cov-report=term-missing
+      - name: Numerics
+        run: pytest --impl student tests/test_numerics.py -v --cov=student/mpc --cov-report=term-missing
+      - name: ML
+        run: pytest --impl student tests/test_mlp.py -v --cov=student/ml --cov-report=term-missing
+      - name: PyTorch compatibility
+        run: pytest --impl student tests/test_torch_compat.py -v --cov=student/autodiff --cov=student/ml --cov-report=term-missing
+      - name: MPC
+        run: pytest --impl student tests/test_simple_mpc.py -v --cov=student/mpc --cov-report=term-missing
+      - name: Integration (car on track)
+        run: pytest --impl student tests/test_car_run.py -v --cov=student/autodiff --cov=student/ml --cov=student/mpc --cov-report=term-missing
