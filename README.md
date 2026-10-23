@@ -2,94 +2,39 @@
 
 [![tests](https://github.com/Magikdidi24/py-allumette-optimize/actions/workflows/ci.yml/badge.svg)](https://github.com/Magikdidi24/py-allumette-optimize/actions/workflows/ci.yml)
 
-Learning-based MPC for a small autonomous race car, written from scratch in
-NumPy (EPITA SAE "Py-Allumette", 2025-26). No PyTorch in the controller: the
-autodiff engine, the MLP, the optimizers and the MPC are all hand-written.
+School project at EPITA (SAE Py-Allumette, 2025-26): drive a small simulated race car around a track with MPC, then with an MPC that has a learned model. No PyTorch allowed in the controller, so the autodiff, the MLP, the optimizers and the MPC are written by hand in NumPy.
 
 ![Learned MPC, one lap](docs/race_mlmpc.gif)
 
-Full video: [`race_mlmpc.mp4`](race_mlmpc.mp4)
+Every 0.1 s the MPC optimizes the next 15 actions (throttle and steering) with Adam, by backprop through a rollout of a bicycle model. The tests check my autodiff against PyTorch.
 
-## What it does
-
-- **Autodiff** (`student/autodiff/tensor.py`): reverse-mode autodiff on NumPy
-  arrays (broadcasting, matmul, activations, trig, reductions, indexing,
-  stacking). `tests/test_torch_compat.py` checks values and gradients against
-  PyTorch.
-- **MPC** (`student/mpc/`): at every 0.1 s step, Adam optimizes the next 15
-  actions (throttle, steering) by back-propagating an MPCC-style cost
-  (contouring + lag error, speed profile, soft track barrier, anti-spin terms)
-  through a rollout of a dynamic bicycle model.
-- **ML-MPC** (`student/ml/`, `student/mpc/controller.py`): a 3-layer MLP
-  (8 → 64 → 64 → 6) trained on one noisy run of the nominal MPC predicts the
-  one-step error of the nominal model. The controller then plans with
-  `x_next = f_nominal(x, u) + dt * mlp(x, u)`.
-
-The simulator moves the "real" car with the good parameters and RK45. The
-controller's internal model uses Euler steps and, by default, the wrong
-("bad") parameters; the MLP learns that gap.
+The simulator moves the car with the good parameters and RK45, but the controller only has Euler steps and the wrong ("bad") parameters. For the learned version I trained an MLP on one noisy run of the normal MPC to predict that error, and the controller plans with `f_nominal(x, u) + dt * mlp(x, u)`.
 
 ## Results
 
-One lap from the start line, lap time printed by `src/main_race.py`
-(`steps x 0.1 s`). All four runs finish the lap without leaving the track.
+One lap each, all 4 finish without leaving the track. Full video of the learned one: [race_mlmpc.mp4](race_mlmpc.mp4).
 
-| Controller | Internal model parameters | Lap time |
-|------------|---------------------------|----------|
-| Nominal MPC | bad (default) | 14.00 s |
-| Learned MPC | bad (default) | 14.20 s |
-| Nominal MPC | good | 14.00 s |
-| Learned MPC | good | 14.40 s |
+| controller | model params | lap time |
+|---|---|---:|
+| MPC | bad | 14.00 s |
+| learned MPC | bad | 14.20 s |
+| MPC | good | 14.00 s |
+| learned MPC | good | 14.40 s |
 
-Measured with
-`MPLBACKEND=Agg python src/main_race.py --impl student --mode {mpc,mlmpc} --parameters {bad,good}`
-(Python 3.10, CPU; the race itself has no randomness). The learned MPC matches the
-recorded video (`race_mlmpc.npy` holds 143 states, i.e. 142 steps = 14.2 s).
-Both controllers chase the same reference speed profile, and here the learned
-residual does not make the lap faster: the nominal MPC is 0.2 s quicker. The
-MLP was trained against the bad-parameter model, so the "good" rows apply it
-outside the setting it was trained for.
-
-Pure-NumPy autodiff is slow: one simulated lap took 15 to 25 minutes of
-wall-clock time here (four races in parallel on a 14-thread CPU).
+The learned model doesn't make the lap faster. Plain MPC is 0.2 s quicker with the bad params and 0.4 s with the good ones. The MLP was trained against the bad params, so the "good" rows use it outside what it was trained for. Autodiff in pure NumPy is also slow, one lap took 15 to 25 min to simulate.
 
 ## How to run
 
-Python 3.10 (the version CI uses). With [uv](https://docs.astral.sh/uv/):
+Python 3.10, from the repo root. `--impl student` is needed because the default `teacher` is the course reference code, which isn't in this repo.
 
 ```bash
-uv venv --python 3.10 .venv
-uv pip install --python .venv/bin/python -r src/requirements.txt --index-strategy unsafe-best-match
-source .venv/bin/activate
-```
-
-or with pip: `python3.10 -m venv .venv && source .venv/bin/activate && pip install -r src/requirements.txt`.
-
-Commands run from the repo root. `--impl student` is required: the course
-default (`teacher`) is a private reference implementation that is not in this
-repo.
-
-```bash
-# Race (opens a matplotlib animation; prints the lap time)
-python src/main_race.py --impl student --mode mpc   --parameters bad   # nominal MPC
-python src/main_race.py --impl student --mode mlmpc --parameters bad   # learned MPC
-
-# Re-train the residual model (overwrites student/mlp_weights.npy and norm_stats.npy)
-python student/main_collect_data.py --steps 600   # noisy nominal run -> student/data/*.npy
-python student/main_train_model.py --epochs 300
-
-# Tests (all the tests CI runs)
+pip install -r src/requirements.txt
+python src/main_race.py --impl student --mode mlmpc --parameters bad   # or --mode mpc
 pytest --impl student
+
+# retrain the MLP (overwrites the weights in student/)
+python student/main_collect_data.py --steps 600
+python student/main_train_model.py --epochs 300
 ```
 
-On a machine without a display, prefix the race command with `MPLBACKEND=Agg`.
-
-## Repo layout
-
-| Path | Origin | Content |
-|------|--------|---------|
-| `src/` | course | track, simulator (good parameters, RK45), visualizer, `main_race.py` |
-| `tests/`, `conftest.py`, `pytest.ini` | course | test suite, `--impl` selector |
-| `student/` | **my work** | autodiff, MLP + optimizers, MPC, data collection and training scripts, trained weights ([details](student/README.md)) |
-| `docs/course.md` | course | original course README |
-| `race_mlmpc.mp4`, `race_mlmpc.npy` | my work | recorded lap of the learned MPC (video and state history) |
+`src/`, `tests/` and `docs/course.md` come from the course. Everything in `student/` is mine.
